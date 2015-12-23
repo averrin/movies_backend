@@ -16,6 +16,7 @@ import (
 	"os"
 	"fmt"
 	"regexp"
+	"bytes"
 	// "io/ioutil"
 )
 
@@ -25,6 +26,35 @@ type Response struct {
 
 type MovieForm struct {
 	RawIMDB  string `json:"imdb"`
+}
+
+type User struct {
+	ClientID       string `json:"clientID"`
+	CreatedAt      string `json:"created_at"`
+	Email          string `json:"email"`
+	EmailVerified  bool   `json:"email_verified"`
+	FamilyName     string `json:"family_name"`
+	Gender         string `json:"gender"`
+	GivenName      string `json:"given_name"`
+	GlobalClientID string `json:"global_client_id"`
+	Identities     []struct {
+		AccessToken string `json:"access_token"`
+		Connection  string `json:"connection"`
+		ExpiresIn   int    `json:"expires_in"`
+		IsSocial    bool   `json:"isSocial"`
+		Provider    string `json:"provider"`
+		UserID      string `json:"user_id"`
+	} `json:"identities"`
+	Locale       string `json:"locale"`
+	Name         string `json:"name"`
+	Nickname     string `json:"nickname"`
+	Picture      string `json:"picture"`
+	UpdatedAt    string `json:"updated_at"`
+	UserID       string `json:"user_id"`
+	UserMetadata struct {
+		Admin     bool `json:"admin,omitempty"`
+		Superuser bool `json:"superuser,omitempty"`
+	} `json:"user_metadata,omitempty"`
 }
 
 type Movie struct {
@@ -48,8 +78,10 @@ type Movie struct {
 	ImdbID     string `json:"imdbID"`
 	ImdbRating string `json:"imdbRating"`
 	ImdbVotes  string `json:"imdbVotes"`
-	Author  	 string `json:"author,omitempty"`
+	AuthorID   string `json:"authorID"`
+	Author  	 User `json:"author,omitempty"`
 }
+
 
 type key int
 
@@ -75,6 +107,30 @@ func GetDb(r *http.Request) *mgo.Database {
 
 func SetDb(r *http.Request, val *mgo.Database) {
 	context.Set(r, db, val)
+}
+
+func AddUser(token *jwt.Token, db *mgo.Database) {
+
+	url := "https://averrin.auth0.com/tokeninfo"
+
+	// t, _ := json.Marshal(token)
+	fmt.Println(token.Raw)
+	var jsonStr = []byte(`{"id_token":"`+token.Raw+`"}`)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+			panic(err)
+	}
+	var user User;
+	decoder := json.NewDecoder(resp.Body)
+	err = decoder.Decode(&user)
+	// u, _ := json.Marshal(user)
+	// fmt.Println(string(u))
+	defer resp.Body.Close()
+	db.C(`users`).Insert(&user)
 }
 
 func MongoMiddleware() negroni.HandlerFunc {
@@ -108,13 +164,51 @@ func StartServer() {
 	r.Handle("/movies", negroni.New(
 		negroni.HandlerFunc(jwtMiddleware.HandlerWithNext),
 		negroni.HandlerFunc(MongoMiddleware()),
-		negroni.Wrap(http.HandlerFunc(addMovie)),
+		negroni.Wrap(http.HandlerFunc(restMovies)),
 	)).Methods("POST", "GET")
+	r.Handle("/movies/{imdbID}", negroni.New(
+		negroni.HandlerFunc(jwtMiddleware.HandlerWithNext),
+		negroni.HandlerFunc(MongoMiddleware()),
+		negroni.Wrap(http.HandlerFunc(restMovie)),
+	)).Methods("DELETE")
 	http.Handle("/", r)
 	http.ListenAndServe(":3001", nil)
 }
 
-func addMovie(w http.ResponseWriter, req *http.Request) {
+func Find(vs []User, f func(User) bool) User {
+    for _, v := range vs {
+        if f(v) {
+						return v
+        }
+    }
+    return User{}
+}
+
+func restMovie(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+  imdbID := vars["imdbID"]
+	user := context.Get(req, "user")
+	uid := user.(*jwt.Token).Claims[`sub`]
+	var movie Movie;
+	db := GetDb(req)
+	c := db.C(`movies`)
+	err := c.Find(bson.M{"imdbid": imdbID}).One(&movie)
+	if err != nil {
+			log.Println(err.Error())
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+	}
+	if uid.(string) != movie.AuthorID {
+			log.Println(`wrong author`)
+			http.Error(w, `wrong author`, http.StatusForbidden)
+			return
+	}
+	c.Remove(bson.M{"imdbid": imdbID})
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`Deleted`))
+}
+
+func restMovies(w http.ResponseWriter, req *http.Request) {
 	user := context.Get(req, "user")
 	db := GetDb(req)
 	c := db.C(`movies`)
@@ -123,21 +217,40 @@ func addMovie(w http.ResponseWriter, req *http.Request) {
 			var movies []Movie;
 			err := c.Find(nil).All(&movies)
 			if err != nil {
-					log.Println(err.Error())
-					http.Error(w, err.Error(), http.StatusInternalServerError)
+				log.Println(err.Error())
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			var users []User;
+			db.C(`users`).Find(nil).All(&users)
+			result := make([]Movie, 0)
+			for _, movie := range movies {
+				// fmt.Println(i, movie)
+				movie.Author = Find(users, func(u User) bool {
+					return u.UserID == movie.AuthorID
+				})
+				result = append(result, movie)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			r, _ := json.Marshal(movies)
+			r, _ := json.Marshal(result)
+			// r, _ := json.Marshal(movies)
 			w.Write(r)
 		case "POST":
 			idPattern := regexp.MustCompile(`tt\d+`)
 			uid := user.(*jwt.Token).Claims[`sub`]
+			q := db.C(`users`).Find(bson.M{"userid": uid}).Limit(1)
+			count, err := q.Count()
+			if count == 0 {
+				go AddUser(user.(*jwt.Token), db)
+			}
+
 			form := new(MovieForm)
 			decoder := json.NewDecoder(req.Body)
 			error := decoder.Decode(&form)
 			if error != nil {
-					log.Println(error.Error())
-					http.Error(w, error.Error(), http.StatusInternalServerError)
+				log.Println(error.Error())
+				http.Error(w, error.Error(), http.StatusInternalServerError)
+				return
 			}
 			id := idPattern.FindString(form.RawIMDB)
 			url := `http://www.omdbapi.com/?i=` + id + `&plot=full&r=json`
@@ -145,11 +258,15 @@ func addMovie(w http.ResponseWriter, req *http.Request) {
 			if err != nil {
 				log.Println(err.Error())
 				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
 			defer resp.Body.Close()
 
 			movie := new(Movie)
-			movie.Author = uid.(string)
+			author := User{}
+			q.One(&author)
+			movie.Author = author
+			movie.AuthorID = uid.(string)
 			MDecoder := json.NewDecoder(resp.Body)
 			err = MDecoder.Decode(&movie)
 			if err != nil {
@@ -161,7 +278,7 @@ func addMovie(w http.ResponseWriter, req *http.Request) {
 				http.Error(w, `Wrong imdbID`, http.StatusInternalServerError)
 				return
 			}
-			count, err := c.Find(bson.M{"imdbid": movie.ImdbID}).Limit(1).Count()
+			count, err = c.Find(bson.M{"imdbid": movie.ImdbID}).Limit(1).Count()
 			if err != nil {
 				log.Println(err.Error())
 				http.Error(w, err.Error(), http.StatusInternalServerError)
