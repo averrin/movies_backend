@@ -134,7 +134,7 @@ func AddUser(token *jwt.Token, db *mgo.Database) {
 }
 
 func MongoMiddleware() negroni.HandlerFunc {
-	session, err := mgo.Dial("localhost")
+	session, err := mgo.Dial("mongo")
   if err != nil {
     panic(err)
   }
