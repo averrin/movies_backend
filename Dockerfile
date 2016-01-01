@@ -1,6 +1,8 @@
-FROM centurylink/ca-certs
+#FROM centurylink/ca-certs
+FROM ubuntu
 EXPOSE 80
 WORKDIR /app
 # copy binary into image
 COPY movies_backend /app/
-ENTRYPOINT ["./movies_backend"]
+COPY .env /app/
+#ENTRYPOINT ["./movies_backend"]
