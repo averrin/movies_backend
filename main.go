@@ -172,6 +172,7 @@ func StartServer() {
 		negroni.Wrap(http.HandlerFunc(restMovie)),
 	)).Methods("DELETE")
 	http.Handle("/", r)
+	log.Info("Start server :3001")
 	http.ListenAndServe(":3001", nil)
 }
 
