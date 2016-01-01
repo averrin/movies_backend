@@ -11,12 +11,14 @@ import (
 	"github.com/joho/godotenv"
 	"gopkg.in/mgo.v2"
   "gopkg.in/mgo.v2/bson"
-	"log"
+	// "log"
 	"net/http"
 	"os"
 	"fmt"
 	"regexp"
 	"bytes"
+	log "github.com/Sirupsen/logrus"
+	// "github.com/jmcvetta/randutil"
 	// "io/ioutil"
 )
 
@@ -52,9 +54,9 @@ type User struct {
 	UpdatedAt    string `json:"updated_at"`
 	UserID       string `json:"user_id"`
 	UserMetadata struct {
-		Admin     bool `json:"admin,omitempty"`
-		Superuser bool `json:"superuser,omitempty"`
-	} `json:"user_metadata,omitempty"`
+		Admin     bool `json:"admin"`
+		Superuser bool `json:"superuser"`
+	} `json:"user_metadata"`
 }
 
 type Movie struct {
@@ -79,9 +81,15 @@ type Movie struct {
 	ImdbRating string `json:"imdbRating"`
 	ImdbVotes  string `json:"imdbVotes"`
 	AuthorID   string `json:"authorID"`
-	Author  	 User `json:"author,omitempty"`
+	Author  	 User   `json:"author"`
+	Seen			 bool   `json:"seen"`
+	Rate			 int    `json:"rate"`
 }
 
+type Rate struct {
+	Seen			 bool   `json:"seen"`
+	Rate			 int    `json:"rate"`
+}
 
 type key int
 
@@ -92,6 +100,7 @@ func main() {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
+		return
 	}
 
 	StartServer()
@@ -149,6 +158,7 @@ func MongoMiddleware() negroni.HandlerFunc {
 }
 
 func StartServer() {
+	log.Info("Setting routes")
 	r := mux.NewRouter().StrictSlash(true)
 
 	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
@@ -170,9 +180,11 @@ func StartServer() {
 		negroni.HandlerFunc(jwtMiddleware.HandlerWithNext),
 		negroni.HandlerFunc(MongoMiddleware()),
 		negroni.Wrap(http.HandlerFunc(restMovie)),
-	)).Methods("DELETE")
+	)).Methods("DELETE", "POST")
 	http.Handle("/", r)
-	http.ListenAndServe(":80", nil)
+	port := os.Getenv("PORT")
+	log.Info("Start listening port " + port)
+	http.ListenAndServe(":" + port, nil)
 }
 
 func Find(vs []User, f func(User) bool) User {
@@ -198,14 +210,30 @@ func restMovie(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 	}
-	if uid.(string) != movie.AuthorID {
-			log.Println(`wrong author`)
-			http.Error(w, `wrong author`, http.StatusForbidden)
-			return
+	switch req.Method {
+		case "DELETE":
+			if uid.(string) != movie.AuthorID {
+					log.Println(`wrong author`)
+					http.Error(w, `wrong author`, http.StatusForbidden)
+					return
+			}
+			c.Remove(bson.M{"imdbid": imdbID})
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`Deleted`))
+		case "POST":
+			rate := new(Rate)
+			decoder := json.NewDecoder(req.Body)
+			decoder.Decode(&rate)
+			fmt.Println(rate)
+			err := c.Update(bson.M{"imdbid": imdbID}, bson.M{"$set": rate})
+			if err != nil {
+					log.Println(err.Error())
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`Updated`))
 	}
-	c.Remove(bson.M{"imdbid": imdbID})
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`Deleted`))
 }
 
 func restMovies(w http.ResponseWriter, req *http.Request) {
@@ -229,6 +257,8 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 				movie.Author = Find(users, func(u User) bool {
 					return u.UserID == movie.AuthorID
 				})
+				// movie.Seen = false;
+				// movie.Rate = 1;
 				result = append(result, movie)
 			}
 			w.Header().Set("Content-Type", "application/json")
