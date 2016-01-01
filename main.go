@@ -84,13 +84,16 @@ type Movie struct {
 	Author  	 User   `json:"author"`
 	Seen			 bool   `json:"seen"`
 	Rate			 int    `json:"rate"`
+	Rates      []Rate `json:"rates"`
 }
 
 type Rate struct {
-	AuthorID   string `json:"authorID"`
-	ImdbID     string `json:"imdbID"`
-	Seen			 bool   `json:"seen"`
-	Rate			 int    `json:"rate"`
+	AuthorID   		string `json:"authorID"`
+	ImdbID     		string `json:"imdbID"`
+	Seen			 		bool   `json:"seen"`
+	Rate			 		int    `json:"rate"`
+	AuthorName 		string `json:"authorName"`
+	AuthorAvatar	string `json:"authorAvatar"`
 }
 
 type key int
@@ -233,6 +236,11 @@ func restMovie(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`Deleted`))
 		case "POST":
+			q := db.C(`users`).Find(bson.M{"userid": uid}).Limit(1)
+			count, _ := q.Count()
+			if count == 0 {
+				go AddUser(user.(*jwt.Token), db)
+			}
 			rate := new(Rate)
 			decoder := json.NewDecoder(req.Body)
 			decoder.Decode(&rate)
@@ -256,10 +264,13 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 	db := GetDb(req)
 	c := db.C(`movies`)
 	r := db.C(`rates`)
+	u := db.C(`users`)
 	switch req.Method {
 		case "GET":
 			var movies []Movie;
 			var rates []Rate;
+			var all_rates []Rate;
+			var users []User;
 			err := c.Find(nil).All(&movies)
 			if err != nil {
 				log.Println(err.Error())
@@ -267,8 +278,8 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 			r.Find(bson.M{"authorid": uid.(string)}).All(&rates)
-			var users []User;
-			db.C(`users`).Find(nil).All(&users)
+			r.Find(nil).All(&all_rates)
+			u.Find(nil).All(&users)
 			result := make([]Movie, 0)
 			for _, movie := range movies {
 				// fmt.Println(i, movie)
@@ -280,6 +291,17 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 				})
 				movie.Seen = rate.Seen;
 				movie.Rate = rate.Rate;
+				for _, r := range all_rates {
+					if r.ImdbID == movie.ImdbID && r.AuthorID != uid.(string) {
+						author := Find(users, func(u User) bool {
+							fmt.Println(u.UserID, r.AuthorID)
+							return u.UserID == r.AuthorID
+						})
+						r.AuthorName = author.Name
+						r.AuthorAvatar = author.Picture
+						movie.Rates = append(movie.Rates, r)
+					}
+				}
 				result = append(result, movie)
 			}
 			w.Header().Set("Content-Type", "application/json")
