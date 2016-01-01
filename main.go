@@ -294,7 +294,6 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 				for _, r := range all_rates {
 					if r.ImdbID == movie.ImdbID && r.AuthorID != uid.(string) {
 						author := Find(users, func(u User) bool {
-							fmt.Println(u.UserID, r.AuthorID)
 							return u.UserID == r.AuthorID
 						})
 						r.AuthorName = author.Name
