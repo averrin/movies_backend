@@ -87,6 +87,8 @@ type Movie struct {
 }
 
 type Rate struct {
+	AuthorID   string `json:"authorID"`
+	ImdbID     string `json:"imdbID"`
 	Seen			 bool   `json:"seen"`
 	Rate			 int    `json:"rate"`
 }
@@ -196,6 +198,15 @@ func Find(vs []User, f func(User) bool) User {
     return User{}
 }
 
+func FindRate(vs []Rate, f func(Rate) bool) Rate {
+    for _, v := range vs {
+        if f(v) {
+						return v
+        }
+    }
+    return Rate{Seen: false, Rate: 0}
+}
+
 func restMovie(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
   imdbID := vars["imdbID"]
@@ -204,6 +215,7 @@ func restMovie(w http.ResponseWriter, req *http.Request) {
 	var movie Movie;
 	db := GetDb(req)
 	c := db.C(`movies`)
+	r := db.C(`rates`)
 	err := c.Find(bson.M{"imdbid": imdbID}).One(&movie)
 	if err != nil {
 			log.Println(err.Error())
@@ -224,8 +236,10 @@ func restMovie(w http.ResponseWriter, req *http.Request) {
 			rate := new(Rate)
 			decoder := json.NewDecoder(req.Body)
 			decoder.Decode(&rate)
+			rate.AuthorID = uid.(string)
+			rate.ImdbID = imdbID
 			fmt.Println(rate)
-			err := c.Update(bson.M{"imdbid": imdbID}, bson.M{"$set": rate})
+			_, err := r.Upsert(bson.M{"imdbid": imdbID, "authorid": uid.(string)}, bson.M{"$set": rate})
 			if err != nil {
 					log.Println(err.Error())
 					http.Error(w, err.Error(), http.StatusNotFound)
@@ -238,17 +252,21 @@ func restMovie(w http.ResponseWriter, req *http.Request) {
 
 func restMovies(w http.ResponseWriter, req *http.Request) {
 	user := context.Get(req, "user")
+	uid := user.(*jwt.Token).Claims[`sub`]
 	db := GetDb(req)
 	c := db.C(`movies`)
+	r := db.C(`rates`)
 	switch req.Method {
 		case "GET":
 			var movies []Movie;
+			var rates []Rate;
 			err := c.Find(nil).All(&movies)
 			if err != nil {
 				log.Println(err.Error())
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			r.Find(bson.M{"authorid": uid.(string)}).All(&rates)
 			var users []User;
 			db.C(`users`).Find(nil).All(&users)
 			result := make([]Movie, 0)
@@ -257,8 +275,11 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 				movie.Author = Find(users, func(u User) bool {
 					return u.UserID == movie.AuthorID
 				})
-				// movie.Seen = false;
-				// movie.Rate = 1;
+				rate := FindRate(rates, func(r Rate) bool {
+					return r.ImdbID == movie.ImdbID
+				})
+				movie.Seen = rate.Seen;
+				movie.Rate = rate.Rate;
 				result = append(result, movie)
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -267,7 +288,6 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 			w.Write(r)
 		case "POST":
 			idPattern := regexp.MustCompile(`tt\d+`)
-			uid := user.(*jwt.Token).Claims[`sub`]
 			q := db.C(`users`).Find(bson.M{"userid": uid}).Limit(1)
 			count, err := q.Count()
 			if count == 0 {
