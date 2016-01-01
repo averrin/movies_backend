@@ -172,7 +172,7 @@ func StartServer() {
 		negroni.Wrap(http.HandlerFunc(restMovie)),
 	)).Methods("DELETE")
 	http.Handle("/", r)
-	http.ListenAndServe(":3001", nil)
+	http.ListenAndServe(":80", nil)
 }
 
 func Find(vs []User, f func(User) bool) User {
