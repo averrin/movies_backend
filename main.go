@@ -18,7 +18,7 @@ import (
 	"regexp"
 	"bytes"
 	log "github.com/Sirupsen/logrus"
-	"strings"
+	// "strings"
 	// "github.com/jmcvetta/randutil"
 	// "io/ioutil"
 )
