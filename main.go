@@ -355,6 +355,7 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 			q.One(&author)
 			movie.Author = author
 			movie.AuthorID = uid.(string)
+			movie.Poster = Replace(`http://`, movie.Poster, `https://`)
 			MDecoder := json.NewDecoder(resp.Body)
 			err = MDecoder.Decode(&movie)
 			if err != nil {
