@@ -85,6 +85,7 @@ type Movie struct {
 	Seen			 bool   `json:"seen"`
 	Rate			 int    `json:"rate"`
 	Rates      []Rate `json:"rates"`
+	Index			 float32		`json:"index"`
 }
 
 type Rate struct {
@@ -296,15 +297,26 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 				})
 				movie.Seen = rate.Seen;
 				movie.Rate = rate.Rate;
+				index := float32(0);
+				count := float32(len(users));
 				for _, r := range all_rates {
-					if r.ImdbID == movie.ImdbID && r.AuthorID != uid.(string) {
-						author := Find(users, func(u User) bool {
-							return u.UserID == r.AuthorID
-						})
-						r.AuthorName = author.Name
-						r.AuthorAvatar = author.Picture
-						movie.Rates = append(movie.Rates, r)
+					if r.ImdbID == movie.ImdbID {
+						index += float32(r.Rate)
+						// count += float32(1)
+						if r.AuthorID != uid.(string) {
+							author := Find(users, func(u User) bool {
+								return u.UserID == r.AuthorID
+							})
+							r.AuthorName = author.Name
+							r.AuthorAvatar = author.Picture
+							movie.Rates = append(movie.Rates, r)
+						}
 					}
+				}
+				if count > 0 {
+					movie.Index = index / count
+				} else {
+					movie.Index = float32(0)
 				}
 				result = append(result, movie)
 			}
