@@ -298,7 +298,7 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 				})
 				movie.Seen = rate.Seen;
 				movie.Rate = rate.Rate;
-				movie.Poster = strings.Replace(movie.Poster, `http://`, `https://`, 1)
+				// movie.Poster = strings.Replace(movie.Poster, `http://`, `https://`, 1)
 				index := float32(0);
 				count := float32(len(users));
 				for _, r := range all_rates {
@@ -357,7 +357,7 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 			q.One(&author)
 			movie.Author = author
 			movie.AuthorID = uid.(string)
-			movie.Poster = strings.Replace(movie.Poster, `http://`, `https://`, 1)
+			// movie.Poster = strings.Replace(movie.Poster, `http://`, `https://`, 1)
 			MDecoder := json.NewDecoder(resp.Body)
 			err = MDecoder.Decode(&movie)
 			if err != nil {
