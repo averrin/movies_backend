@@ -87,6 +87,7 @@ type Movie struct {
 	Rate			 int    `json:"rate"`
 	Rates      []Rate `json:"rates"`
 	Index			 float32		`json:"index"`
+	Voted			 bool   `json:"voted"`
 }
 
 type Rate struct {
@@ -294,7 +295,12 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 					return u.UserID == movie.AuthorID
 				})
 				rate := FindRate(rates, func(r Rate) bool {
-					return r.ImdbID == movie.ImdbID
+					if r.ImdbID == movie.ImdbID {
+						movie.Voted = true
+						return true
+					} else {
+						return false
+					}
 				})
 				movie.Seen = rate.Seen;
 				movie.Rate = rate.Rate;
