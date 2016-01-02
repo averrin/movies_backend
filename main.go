@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"bytes"
 	log "github.com/Sirupsen/logrus"
+	"strings"
 	// "github.com/jmcvetta/randutil"
 	// "io/ioutil"
 )
@@ -297,6 +298,7 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 				})
 				movie.Seen = rate.Seen;
 				movie.Rate = rate.Rate;
+				movie.Poster = strings.Replace(`http://`, movie.Poster, `https://`, 1)
 				index := float32(0);
 				count := float32(len(users));
 				for _, r := range all_rates {
@@ -355,7 +357,7 @@ func restMovies(w http.ResponseWriter, req *http.Request) {
 			q.One(&author)
 			movie.Author = author
 			movie.AuthorID = uid.(string)
-			movie.Poster = Replace(`http://`, movie.Poster, `https://`)
+			movie.Poster = strings.Replace(`http://`, movie.Poster, `https://`, 1)
 			MDecoder := json.NewDecoder(resp.Body)
 			err = MDecoder.Decode(&movie)
 			if err != nil {
