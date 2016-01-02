@@ -219,6 +219,7 @@ func restMovie(w http.ResponseWriter, req *http.Request) {
 	db := GetDb(req)
 	c := db.C(`movies`)
 	r := db.C(`rates`)
+	u := db.C(`users`)
 	err := c.Find(bson.M{"imdbid": imdbID}).One(&movie)
 	if err != nil {
 			log.Println(err.Error())
@@ -228,9 +229,13 @@ func restMovie(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 		case "DELETE":
 			if uid.(string) != movie.AuthorID {
-					log.Println(`wrong author`)
-					http.Error(w, `wrong author`, http.StatusForbidden)
-					return
+					var usr User;
+					u.Find(bson.M{`userid`: uid.(string)}).One(&usr)
+					if usr.UserMetadata.Admin != true {
+						log.Println(`wrong author`)
+						http.Error(w, `wrong author`, http.StatusForbidden)
+						return
+					}
 			}
 			c.Remove(bson.M{"imdbid": imdbID})
 			w.Header().Set("Content-Type", "application/json")
